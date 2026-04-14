@@ -2,10 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 /**
  * --- 国乒大魔王挑战赛 ---
- * 核心逻辑：
- * 1. 随着得分增加，自动切换对手 (Boss)
- * 2. 难度随 Boss 变化：球速增加、击球判定区变窄
- * 3. 针对手机端进行了触控优化
+ * 针对手机端和 GitHub Pages 部署优化的版本
  */
 
 const BOSSES = [
@@ -18,7 +15,7 @@ const BOSSES = [
 ];
 
 export default function PingPongGame() {
-  const [gameState, setGameState] = useState('START'); // START, PLAYING, GAMEOVER, TRANSITION
+  const [gameState, setGameState] = useState('START'); 
   const [score, setScore] = useState(0);
   const [highScore, setHighScore] = useState(0);
   const [currentBossIndex, setCurrentBossIndex] = useState(0);
@@ -27,6 +24,8 @@ export default function PingPongGame() {
   const [perfectText, setPerfectText] = useState(false);
 
   const ballRef = useRef(null);
+  const lastTimeRef = useRef(0);
+  const requestRef = useRef();
   
   const engine = useRef({
     pos: 0,
@@ -36,16 +35,15 @@ export default function PingPongGame() {
     bossIndex: 0,
   });
 
-  const requestRef = useRef();
-  const lastTimeRef = useRef(0);
-
   const currentBoss = BOSSES[currentBossIndex];
 
+  // 初始化分数
   useEffect(() => {
     const saved = localStorage.getItem('pingpong_highscore');
     if (saved) setHighScore(parseInt(saved, 10));
   }, []);
 
+  // 更新最高分
   useEffect(() => {
     if (score > highScore) {
       setHighScore(score);
@@ -53,6 +51,7 @@ export default function PingPongGame() {
     }
   }, [score, highScore]);
 
+  // 游戏主循环
   const gameLoop = useCallback((time) => {
     if (!lastTimeRef.current) lastTimeRef.current = time;
     const deltaTime = (time - lastTimeRef.current) / 16.66;
@@ -64,25 +63,24 @@ export default function PingPongGame() {
       
       state.pos += state.vel * deltaTime;
 
-      if (state.vel > 0) {
-        if (state.pos >= 100) {
-          triggerGameOver('漏球啦！手速得再快一点！');
-        }
+      // 判定漏球
+      if (state.vel > 0 && state.pos >= 100) {
+        engine.current.status = 'GAMEOVER';
+        setGameState('GAMEOVER');
+        setFailReason('漏球啦！手速得再快一点！');
       } 
-      else if (state.vel < 0) {
-        if (state.pos <= 5) {
-          state.pos = 5;
-          state.vel = boss.speed; 
-          setFlash(true);
-          setTimeout(() => setFlash(false), 50);
-        }
+      // 对手接球
+      else if (state.vel < 0 && state.pos <= 5) {
+        state.pos = 5;
+        state.vel = boss.speed; 
+        setFlash(true);
+        setTimeout(() => setFlash(false), 50);
       }
 
       if (ballRef.current) {
         ballRef.current.style.top = `${state.pos}%`;
       }
     }
-
     requestRef.current = requestAnimationFrame(gameLoop);
   }, []);
 
@@ -94,22 +92,9 @@ export default function PingPongGame() {
   const startGame = () => {
     setScore(0);
     setCurrentBossIndex(0);
-    setGameState('PLAYING');
     setFailReason('');
-    
-    engine.current = {
-      pos: 5,
-      vel: BOSSES[0].speed,
-      status: 'PLAYING',
-      score: 0,
-      bossIndex: 0,
-    };
-  };
-
-  const triggerGameOver = (reason) => {
-    engine.current.status = 'GAMEOVER';
-    setGameState('GAMEOVER');
-    setFailReason(reason);
+    engine.current = { pos: 5, vel: BOSSES[0].speed, status: 'PLAYING', score: 0, bossIndex: 0 };
+    setGameState('PLAYING');
   };
 
   const handleLevelUp = (newScore, currentIdx) => {
@@ -130,25 +115,23 @@ export default function PingPongGame() {
 
   const handlePointerDown = (e) => {
     e.preventDefault(); 
-
     const state = engine.current;
 
     if (state.status === 'GAMEOVER' || state.status === 'START') {
       startGame();
       return;
     }
-    if (state.status === 'TRANSITION') return;
-    if (state.vel < 0) return;
+    if (state.status === 'TRANSITION' || state.vel < 0) return;
 
     const boss = BOSSES[state.bossIndex];
     const hitZoneStart = 100 - boss.zone;
 
+    // 击球判定
     if (state.pos >= hitZoneStart && state.pos <= 100) {
       state.score += 1;
       setScore(state.score);
       
-      const isPerfect = state.pos >= (100 - boss.zone * 0.3);
-      if (isPerfect) {
+      if (state.pos >= (100 - boss.zone * 0.3)) {
         setPerfectText(true);
         setTimeout(() => setPerfectText(false), 400);
       }
@@ -156,7 +139,9 @@ export default function PingPongGame() {
       state.vel = -6.0; 
       handleLevelUp(state.score, state.bossIndex);
     } else {
-      triggerGameOver('挥拍早了！魔王的球有假动作！');
+      engine.current.status = 'GAMEOVER';
+      setGameState('GAMEOVER');
+      setFailReason('挥拍早了！魔王的球有假动作！');
     }
   };
 
@@ -167,30 +152,32 @@ export default function PingPongGame() {
     >
       <div className={`relative w-full max-w-md h-full bg-[#1a5c3a] shadow-2xl overflow-hidden transition-colors duration-200 ${flash ? 'bg-[#268a56]' : ''}`}>
         
+        {/* 球桌中线 */}
         <div className="absolute top-0 bottom-0 left-1/2 w-1 -ml-[0.5px] bg-white/30 border-l border-dashed border-white/50"></div>
         
+        {/* 分数背景 */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-20">
-          <span className="text-[12rem] font-bold text-white tracking-tighter">{score}</span>
+          <span className="text-[10rem] font-bold text-white tracking-tighter">{score}</span>
         </div>
 
-        {/* 顶部 Boss 栏 */}
+        {/* 顶部对手栏 */}
         <div className="absolute top-0 left-0 w-full h-28 bg-black/40 flex flex-col items-center justify-center text-white z-10 border-b-4 border-emerald-800">
           <div className="text-3xl mb-1">{currentBoss.emoji}</div>
           <div className="font-bold text-lg">{currentBoss.name} <span className="text-xs font-normal opacity-60">| {currentBoss.title}</span></div>
           {gameState === 'PLAYING' && (
-            <div className="text-[10px] text-gray-300 italic mt-1 animate-pulse">"{currentBoss.quote}"</div>
+            <div className="text-[10px] text-gray-300 italic mt-1 animate-pulse px-4 text-center">"{currentBoss.quote}"</div>
           )}
         </div>
 
-        {/* 击球区指示器 */}
+        {/* 击球判定区 */}
         <div 
-          className="absolute bottom-0 left-0 w-full bg-emerald-500/20 border-t-2 border-dashed border-yellow-400/50 flex items-end justify-center pb-2 transition-all duration-300"
+          className="absolute bottom-0 left-0 w-full bg-emerald-500/20 border-t-2 border-dashed border-yellow-400/50 flex items-end justify-center pb-2"
           style={{ height: `${currentBoss.zone}%` }}
         >
-           <div className="text-white/40 text-[10px] font-bold tracking-widest">进入此处点击屏幕</div>
+           <div className="text-white/40 text-[10px] font-bold tracking-widest">进入黄色虚线区点击</div>
         </div>
 
-        {/* 球 */}
+        {/* 乒乓球 */}
         {(gameState === 'PLAYING' || gameState === 'GAMEOVER') && (
           <div 
             ref={ballRef}
@@ -199,25 +186,25 @@ export default function PingPongGame() {
           ></div>
         )}
 
-        {/* Perfect 浮层 */}
+        {/* Perfect提示 */}
         {perfectText && (
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 text-4xl font-black text-yellow-300 italic animate-ping z-40">
             好球!
           </div>
         )}
 
-        {/* 状态蒙层：开始、升级、结束 */}
+        {/* UI 蒙层 */}
         {gameState === 'START' && (
           <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-white z-50 p-6 text-center backdrop-blur-sm">
             <h1 className="text-3xl font-black mb-4 text-emerald-400">国乒大魔王挑战赛</h1>
-            <p className="text-sm text-gray-300 mb-8">点击屏幕开始，在球到达黄色区域时精准击球</p>
-            <div className="text-xs text-gray-500 mb-2">最高纪录: {highScore}</div>
-            <button className="px-8 py-3 bg-emerald-500 rounded-full font-bold animate-pulse">开始挑战</button>
+            <p className="text-sm text-gray-300 mb-8">当球进入底部发光区时点击屏幕<br/>挑战马龙、张怡宁等魔王！</p>
+            <div className="text-xs text-gray-500 mb-4">最高连击记录: {highScore}</div>
+            <button className="px-10 py-3 bg-emerald-500 rounded-full font-bold text-lg shadow-lg">开始挑战</button>
           </div>
         )}
 
         {gameState === 'TRANSITION' && (
-          <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center text-white z-50 animate-in fade-in duration-500">
+          <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center text-white z-50 animate-pulse">
             <div className="text-7xl mb-4">{currentBoss.emoji}</div>
             <h2 className="text-4xl font-black mb-2">{currentBoss.name} 登场</h2>
             <p className="text-xl text-emerald-400 italic">"{currentBoss.quote}"</p>
@@ -226,13 +213,13 @@ export default function PingPongGame() {
 
         {gameState === 'GAMEOVER' && (
           <div className="absolute inset-0 bg-red-950/95 flex flex-col items-center justify-center text-white z-50 p-6 text-center">
-            <h2 className="text-5xl font-black mb-4">输了!</h2>
-            <p className="text-red-300 mb-6">{failReason}</p>
-            <div className="bg-white/10 p-4 rounded-lg mb-8 w-full">
-              <div className="text-xs opacity-60">得分 / 最高连击</div>
+            <h2 className="text-5xl font-black mb-4 tracking-tighter">被虐啦!</h2>
+            <p className="text-red-200 mb-6 font-medium">{failReason}</p>
+            <div className="bg-black/30 p-4 rounded-xl mb-8 w-full border border-white/10">
+              <div className="text-xs opacity-60 mb-1">本次得分 / 历史最高</div>
               <div className="text-3xl font-bold">{score} / {highScore}</div>
             </div>
-            <button className="px-10 py-4 bg-white text-red-900 rounded-full font-bold">再战一局</button>
+            <button className="px-12 py-4 bg-white text-red-900 rounded-full font-bold text-xl shadow-xl">不服再战</button>
           </div>
         )}
       </div>
